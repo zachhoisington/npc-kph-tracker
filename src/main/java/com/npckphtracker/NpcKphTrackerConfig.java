@@ -111,20 +111,44 @@ public interface NpcKphTrackerConfig extends Config
     }
 
     @ConfigItem(
-        keyName = "overlayPosition",
-        name = "Overlay Position",
-        description = "Position of the overlay on screen"
+            keyName = "overlayPosition",
+            name = "Overlay Position",
+            description = "Position of the overlay on screen"
     )
-    default OverlayPosition overlayPosition()
+    default OverlayCorner overlayPosition()
     {
-        return OverlayPosition.TOP_LEFT;
+        return OverlayCorner.TOP_LEFT;
     }
+    @ConfigItem(
+            keyName = "useRecentKphForEstimate",
+            name = "Use Recent KPH for Time Estimate",
+            description = "If enabled, the time estimate will use the recent KPH window instead of total KPH."
+    )
+    default boolean useRecentKphForEstimate()
+    {
+        return true;
+    }
+    enum OverlayCorner { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
 
-    enum OverlayPosition
-    {
-        TOP_LEFT,
-        TOP_RIGHT,
-        BOTTOM_LEFT,
-        BOTTOM_RIGHT
-    }
+    @ConfigItem(
+            keyName = "showGpTracking",
+            name = "Show GP tracking",
+            description = "Show GP totals and rates"
+    )
+    default boolean showGpTracking() { return true; }
+
+    @ConfigItem(
+            keyName = "showAvgGpPerKill",
+            name = "Show Avg GP/kill",
+            description = "Show average GP per kill"
+    )
+    default boolean showAvgGpPerKill() { return true; }
+
+    @ConfigItem(
+            keyName = "showGpPerHour",
+            name = "Show GP/hour",
+            description = "Show GP per hour"
+    )
+    default boolean showGpPerHour() { return true; }
+
 }

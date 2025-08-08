@@ -20,7 +20,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-
+import net.runelite.client.eventbus.Subscribe;
+import net.runelite.api.events.VarbitChanged;
 @Slf4j
 @PluginDescriptor(
     name = "NPC KPH Tracker",
@@ -117,14 +118,13 @@ public class NpcKphTrackerPlugin extends Plugin
         
         return totalValue;
     }
-    public void onVarbitChanged(VarbitChanged varbitChanged)
+
+
+    @Subscribe
+    public void onVarbitChanged(VarbitChanged event)
     {
-        // Check for slayer task changes
-        if (varbitChanged.getVarbits().containsKey(VarPlayer.SLAYER_TASK_SIZE) ||
-            varbitChanged.getVarbits().containsKey(VarPlayer.SLAYER_TASK_CREATURE))
-        {
-            updateSlayerTask();
-        }
+        // Just recompute; it's cheap
+        updateSlayerTask();
     }
 
     @Subscribe

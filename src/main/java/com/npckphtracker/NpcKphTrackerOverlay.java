@@ -62,65 +62,65 @@ public class NpcKphTrackerOverlay extends OverlayPanel
 
         // Title
         panelComponent.getChildren().add(TitleComponent.builder()
-            .text("NPC KPH Tracker")
-            .color(TITLE_COLOR)
-            .build());
-
+                .text("NPC KPH Tracker")
+                .color(TITLE_COLOR)
+                .build());
+// Slayer task information
+        SlayerTaskData slayerTask = plugin.getCurrentSlayerTask();
+        boolean isSlayerTask = slayerTask != null && slayerTask.getTaskName().equalsIgnoreCase(trackedNpc);
         // Current NPC being tracked
         String displayName = trackedNpc;
         if (isSlayerTask)
         {
             displayName = trackedNpc + " (Slayer)";
         }
-        
-        panelComponent.getChildren().add(LineComponent.builder()
-            .left("Tracking:")
-            .right(displayName)
-            .leftColor(TEXT_COLOR)
-            .rightColor(isSlayerTask ? Color.MAGENTA : HIGHLIGHT_COLOR)
-            .build());
 
-        // Slayer task information
-        SlayerTaskData slayerTask = plugin.getCurrentSlayerTask();
-        boolean isSlayerTask = slayerTask != null && slayerTask.getTaskName().equalsIgnoreCase(trackedNpc);
-        
+        panelComponent.getChildren().add(LineComponent.builder()
+                .left("Tracking:")
+                .right(displayName)
+                .leftColor(TEXT_COLOR)
+                .rightColor(isSlayerTask ? Color.MAGENTA : HIGHLIGHT_COLOR)
+                .build());
+
+
+
         if (config.showSlayerInfo() && isSlayerTask)
         {
             // Task progress
             panelComponent.getChildren().add(LineComponent.builder()
-                .left("Task Progress:")
-                .right(slayerTask.getCompleted() + "/" + slayerTask.getOriginalAmount())
-                .leftColor(TEXT_COLOR)
-                .rightColor(Color.CYAN)
-                .build());
-                
+                    .left("Task Progress:")
+                    .right(slayerTask.getCompleted() + "/" + slayerTask.getOriginalAmount())
+                    .leftColor(TEXT_COLOR)
+                    .rightColor(Color.CYAN)
+                    .build());
+
             // Remaining
             panelComponent.getChildren().add(LineComponent.builder()
-                .left("Remaining:")
-                .right(String.valueOf(slayerTask.getRemaining()))
-                .leftColor(TEXT_COLOR)
-                .rightColor(Color.ORANGE)
-                .build());
-                
+                    .left("Remaining:")
+                    .right(String.valueOf(slayerTask.getRemaining()))
+                    .leftColor(TEXT_COLOR)
+                    .rightColor(Color.ORANGE)
+                    .build());
+
             // Progress percentage
             double progress = slayerTask.getProgressPercentage();
             panelComponent.getChildren().add(LineComponent.builder()
-                .left("Progress:")
-                .right(String.format("%.1f%%", progress))
-                .leftColor(TEXT_COLOR)
-                .rightColor(getProgressColor(progress))
-                .build());
+                    .left("Progress:")
+                    .right(String.format("%.1f%%", progress))
+                    .leftColor(TEXT_COLOR)
+                    .rightColor(getProgressColor(progress))
+                    .build());
         }
 
         // Kill count
         if (config.showKillCount())
         {
             panelComponent.getChildren().add(LineComponent.builder()
-                .left("Kills:")
-                .right(String.valueOf(data.getKillCount()))
-                .leftColor(TEXT_COLOR)
-                .rightColor(Color.WHITE)
-                .build());
+                    .left("Kills:")
+                    .right(String.valueOf(data.getKillCount()))
+                    .leftColor(TEXT_COLOR)
+                    .rightColor(Color.WHITE)
+                    .build());
         }
 
         // Total KPH
@@ -128,13 +128,13 @@ public class NpcKphTrackerOverlay extends OverlayPanel
         {
             double totalKph = data.getKillsPerHour();
             String kphText = totalKph > 0 ? KPH_FORMAT.format(totalKph) : "0";
-            
+
             panelComponent.getChildren().add(LineComponent.builder()
-                .left("Total KPH:")
-                .right(kphText)
-                .leftColor(TEXT_COLOR)
-                .rightColor(getKphColor(totalKph))
-                .build());
+                    .left("Total KPH:")
+                    .right(kphText)
+                    .leftColor(TEXT_COLOR)
+                    .rightColor(getKphColor(totalKph))
+                    .build());
         }
 
         // Recent KPH
@@ -142,13 +142,13 @@ public class NpcKphTrackerOverlay extends OverlayPanel
         {
             double recentKph = data.getRecentKillsPerHour(config.recentTimeMinutes());
             String recentKphText = recentKph > 0 ? KPH_FORMAT.format(recentKph) : "0";
-            
+
             panelComponent.getChildren().add(LineComponent.builder()
-                .left("Recent KPH (" + config.recentTimeMinutes() + "m):")
-                .right(recentKphText)
-                .leftColor(TEXT_COLOR)
-                .rightColor(getKphColor(recentKph))
-                .build());
+                    .left("Recent KPH (" + config.recentTimeMinutes() + "m):")
+                    .right(recentKphText)
+                    .leftColor(TEXT_COLOR)
+                    .rightColor(getKphColor(recentKph))
+                    .build());
         }
 
         // Time estimate for slayer task
@@ -158,11 +158,11 @@ public class NpcKphTrackerOverlay extends OverlayPanel
             if (timeEstimate != null)
             {
                 panelComponent.getChildren().add(LineComponent.builder()
-                    .left("Est. Time:")
-                    .right(timeEstimate)
-                    .leftColor(TEXT_COLOR)
-                    .rightColor(Color.GREEN)
-                    .build());
+                        .left("Est. Time:")
+                        .right(timeEstimate)
+                        .leftColor(TEXT_COLOR)
+                        .rightColor(Color.GREEN)
+                        .build());
             }
         }
 
@@ -174,13 +174,13 @@ public class NpcKphTrackerOverlay extends OverlayPanel
             if (totalGp > 0)
             {
                 panelComponent.getChildren().add(LineComponent.builder()
-                    .left("Total GP:")
-                    .right(formatGp(totalGp))
-                    .leftColor(TEXT_COLOR)
-                    .rightColor(Color.YELLOW)
-                    .build());
+                        .left("Total GP:")
+                        .right(formatGp(totalGp))
+                        .leftColor(TEXT_COLOR)
+                        .rightColor(Color.YELLOW)
+                        .build());
             }
-            
+
             // Average GP per kill
             if (config.showAvgGpPerKill())
             {
@@ -188,14 +188,14 @@ public class NpcKphTrackerOverlay extends OverlayPanel
                 if (avgGpPerKill > 0)
                 {
                     panelComponent.getChildren().add(LineComponent.builder()
-                        .left("Avg GP/Kill:")
-                        .right(formatGp((long)avgGpPerKill))
-                        .leftColor(TEXT_COLOR)
-                        .rightColor(Color.GREEN)
-                        .build());
+                            .left("Avg GP/Kill:")
+                            .right(formatGp((long)avgGpPerKill))
+                            .leftColor(TEXT_COLOR)
+                            .rightColor(Color.GREEN)
+                            .build());
                 }
             }
-            
+
             // GP per hour
             if (config.showGpPerHour())
             {
@@ -203,11 +203,11 @@ public class NpcKphTrackerOverlay extends OverlayPanel
                 if (gpPerHour > 0)
                 {
                     panelComponent.getChildren().add(LineComponent.builder()
-                        .left("GP/Hour:")
-                        .right(formatGp((long)gpPerHour))
-                        .leftColor(TEXT_COLOR)
-                        .rightColor(getGpPerHourColor(gpPerHour))
-                        .build());
+                            .left("GP/Hour:")
+                            .right(formatGp((long)gpPerHour))
+                            .leftColor(TEXT_COLOR)
+                            .rightColor(getGpPerHourColor(gpPerHour))
+                            .build());
                 }
             }
         }
@@ -216,36 +216,31 @@ public class NpcKphTrackerOverlay extends OverlayPanel
         if (data.getFirstKill() != null)
         {
             long sessionMinutes = java.time.temporal.ChronoUnit.MINUTES.between(
-                data.getFirstKill(), 
-                java.time.Instant.now()
+                    data.getFirstKill(),
+                    java.time.Instant.now()
             );
             String sessionTime = formatTime(sessionMinutes);
-            
+
             panelComponent.getChildren().add(LineComponent.builder()
-                .left("Session:")
-                .right(sessionTime)
-                .leftColor(TEXT_COLOR)
-                .rightColor(Color.CYAN)
-                .build());
+                    .left("Session:")
+                    .right(sessionTime)
+                    .leftColor(TEXT_COLOR)
+                    .rightColor(Color.CYAN)
+                    .build());
         }
 
         return super.render(graphics);
     }
 
-    private OverlayPosition mapConfigPosition()
+    private net.runelite.client.ui.overlay.OverlayPosition mapConfigPosition()
     {
         switch (config.overlayPosition())
         {
-            case TOP_LEFT:
-                return OverlayPosition.TOP_LEFT;
-            case TOP_RIGHT:
-                return OverlayPosition.TOP_RIGHT;
-            case BOTTOM_LEFT:
-                return OverlayPosition.BOTTOM_LEFT;
-            case BOTTOM_RIGHT:
-                return OverlayPosition.BOTTOM_RIGHT;
-            default:
-                return OverlayPosition.TOP_LEFT;
+            case TOP_LEFT:     return OverlayPosition.TOP_LEFT;
+            case TOP_RIGHT:    return OverlayPosition.TOP_RIGHT;
+            case BOTTOM_LEFT:  return OverlayPosition.BOTTOM_LEFT;
+            case BOTTOM_RIGHT: return OverlayPosition.BOTTOM_RIGHT;
+            default:           return OverlayPosition.TOP_LEFT;
         }
     }
 
