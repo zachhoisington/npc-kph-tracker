@@ -8,6 +8,7 @@ import net.runelite.api.Client;
 import net.runelite.api.NPC;
 import net.runelite.api.events.InteractingChanged;
 import net.runelite.api.events.NpcDespawned;
+import net.runelite.client.Notifier;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
@@ -16,12 +17,12 @@ import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
 
-import javax.swing.*;
 import java.awt.*;
+import java.awt.datatransfer.StringSelection;
 import java.awt.image.BufferedImage;
+import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.util.concurrent.ConcurrentLinkedDeque;
 
 @Slf4j
 @PluginDescriptor(
@@ -31,32 +32,42 @@ import java.util.Deque;
 )
 public class KphTrackerPlugin extends Plugin
 {
-    @Inject
-    private Client client;
+    // -------------------------------------------------------------------------
+    // Injected dependencies
+    // -------------------------------------------------------------------------
 
-    @Inject
-    private KphTrackerConfig config;
-
-    @Inject
-    private KphTrackerOverlay overlay;
-
-    @Inject
-    private OverlayManager overlayManager;
-
-    @Inject
-    private ClientToolbar clientToolbar;
-
-    @Inject
-    private KphTrackerPanel panel;
+    @Inject private Client client;
+    @Inject private KphTrackerConfig config;
+    @Inject private KphTrackerOverlay overlay;
+    @Inject private KphTrackerPanel panel;
+    @Inject private OverlayManager overlayManager;
+    @Inject private ClientToolbar clientToolbar;
+    @Inject private Notifier notifier;
 
     private NavigationButton navButton;
 
-    // Rolling window of kill timestamps (used to calculate KPH)
-    private final Deque<Instant> killTimestamps = new ArrayDeque<>();
+    // -------------------------------------------------------------------------
+    // State
+    // All fields read/written across the client thread and Swing EDT must be
+    // volatile or backed by thread-safe collections.
+    // -------------------------------------------------------------------------
 
-    private int totalKills = 0;
-    private String trackedNpcName = null;
-    private Instant sessionStart = null;
+    /** Rolling 1-hour window of kill timestamps for KPH calculation. */
+    private final ConcurrentLinkedDeque<Instant> killTimestamps = new ConcurrentLinkedDeque<>();
+
+    /** Recent kills, newest first, capped at MAX_KILL_LOG_SIZE. */
+    private final ConcurrentLinkedDeque<KillLogEntry> killLog = new ConcurrentLinkedDeque<>();
+
+    private static final int MAX_KILL_LOG_SIZE = 25;
+
+    private volatile int     totalKills     = 0;
+    private volatile String  trackedNpcName = null;
+    private volatile Instant sessionStart   = null;
+    private volatile double  peakKph        = 0.0;
+
+    // -------------------------------------------------------------------------
+    // Lifecycle
+    // -------------------------------------------------------------------------
 
     @Override
     protected void startUp()
@@ -64,7 +75,6 @@ public class KphTrackerPlugin extends Plugin
         overlayManager.add(overlay);
         sessionStart = Instant.now();
 
-        // Register the side panel in RuneLite's left toolbar
         navButton = NavigationButton.builder()
             .tooltip("KPH Tracker")
             .icon(buildIcon())
@@ -73,7 +83,6 @@ public class KphTrackerPlugin extends Plugin
             .build();
 
         clientToolbar.addNavigation(navButton);
-
         log.debug("KPH Tracker started");
     }
 
@@ -83,19 +92,14 @@ public class KphTrackerPlugin extends Plugin
         overlayManager.remove(overlay);
         clientToolbar.removeNavigation(navButton);
         panel.shutdown();
-        reset();
-        trackedNpcName = null;
+        hardReset();
         log.debug("KPH Tracker stopped");
     }
 
     // -------------------------------------------------------------------------
-    // Event handlers
+    // Game event handlers  (run on client thread)
     // -------------------------------------------------------------------------
 
-    /**
-     * Fires whenever the local player changes their attack target.
-     * Used to auto-detect which NPC the player is fighting.
-     */
     @Subscribe
     public void onInteractingChanged(InteractingChanged event)
     {
@@ -111,27 +115,23 @@ public class KphTrackerPlugin extends Plugin
         }
 
         NPC npc = (NPC) target;
-        String npcName = npc.getName();
-        if (npcName == null)
+        String name = npc.getName();
+        if (name == null || name.equals(trackedNpcName))
         {
             return;
         }
 
-        if (config.autoDetect() && !npcName.equals(trackedNpcName))
+        if (config.autoDetect())
         {
             if (config.resetOnNpcChange())
             {
                 reset();
             }
-            trackedNpcName = npcName;
-            log.debug("Now tracking NPC: {}", trackedNpcName);
+            trackedNpcName = name;
+            log.debug("Now tracking: {}", name);
         }
     }
 
-    /**
-     * Fires when an NPC despawns. Records a kill if it died and matches
-     * the NPC we're tracking.
-     */
     @Subscribe
     public void onNpcDespawned(NpcDespawned event)
     {
@@ -142,124 +142,229 @@ public class KphTrackerPlugin extends Plugin
             return;
         }
 
-        String npcName = npc.getName();
-        if (npcName == null)
+        String name = npc.getName();
+        if (name == null)
         {
             return;
         }
 
-        boolean shouldCount = false;
+        boolean count = false;
 
         if (config.autoDetect())
         {
-            shouldCount = npcName.equals(trackedNpcName);
+            count = name.equals(trackedNpcName);
         }
         else
         {
-            String configName = config.npcName().trim();
-            if (configName.isEmpty() || npcName.equalsIgnoreCase(configName))
+            String cfgName = config.npcName().trim();
+            if (cfgName.isEmpty() || name.equalsIgnoreCase(cfgName))
             {
-                shouldCount = true;
-                trackedNpcName = npcName;
+                count = true;
+                trackedNpcName = name;
             }
         }
 
-        if (shouldCount)
+        if (count)
         {
-            recordKill();
+            recordKill(name);
         }
     }
 
     // -------------------------------------------------------------------------
-    // Kill tracking logic
+    // Kill tracking  (client thread)
     // -------------------------------------------------------------------------
 
-    /**
-     * Stamps a kill and trims the rolling window to the last 60 minutes.
-     */
-    private void recordKill()
+    private void recordKill(String npcName)
     {
         Instant now = Instant.now();
-        killTimestamps.addLast(now);
-        totalKills++;
 
+        // Rolling 1-hour window
+        killTimestamps.addLast(now);
         Instant cutoff = now.minusSeconds(3600);
-        while (!killTimestamps.isEmpty() && killTimestamps.peekFirst().isBefore(cutoff))
+        // Safe removal: pollFirst returns null if empty, and we put back if it was not old
+        Instant head;
+        while ((head = killTimestamps.peekFirst()) != null && head.isBefore(cutoff))
         {
-            killTimestamps.pollFirst();
+            // peekFirst + pollFirst on ConcurrentLinkedDeque: another thread could remove
+            // the head between these two calls, but pollFirst returning null is safe here
+            // because we only care about evicting old entries, not about exact count.
+            Instant removed = killTimestamps.pollFirst();
+            if (removed == null)
+            {
+                break; // deque was emptied by another thread
+            }
         }
 
-        log.debug("Kill recorded. Total: {} | Window: {}", totalKills, killTimestamps.size());
+        // Kill log (newest first), capped
+        killLog.addFirst(new KillLogEntry(npcName, now));
+        while (killLog.size() > MAX_KILL_LOG_SIZE)
+        {
+            killLog.pollLast();
+        }
+
+        totalKills++;
+        log.debug("Kill recorded — total: {}  window: {}", totalKills, killTimestamps.size());
     }
 
+    // -------------------------------------------------------------------------
+    // Public API  (called from panel / overlay — may run on EDT)
+    // -------------------------------------------------------------------------
+
     /**
-     * Resets kill counter and session timer. Preserves the tracked NPC name.
-     * Called from both the panel reset button and internally on NPC switch.
+     * Soft reset: clears kills, log, and peak but keeps the tracked NPC name.
+     * Called by the Reset button.
      */
     public void reset()
     {
         killTimestamps.clear();
+        killLog.clear();
         totalKills = 0;
+        peakKph    = 0.0;
         sessionStart = Instant.now();
     }
 
+    private void hardReset()
+    {
+        reset();
+        trackedNpcName = null;
+    }
+
+    /**
+     * Checks whether current KPH is a new session record and notifies if so.
+     * Call periodically (e.g., from the panel refresh timer).
+     * Safe to call from the EDT — only touches volatile fields.
+     */
+    public void checkAndUpdatePeak()
+    {
+        double kph = getKillsPerHour();
+        if (kph <= 0)
+        {
+            return;
+        }
+
+        if (kph > peakKph)
+        {
+            // Notify only when the improvement is meaningful (5 KPH threshold)
+            // and there was a previous baseline (avoids triggering on the very first kill)
+            boolean notify = config.notifyOnPb()
+                && peakKph > 10.0
+                && kph > peakKph + 5.0;
+            peakKph = kph;
+            if (notify)
+            {
+                String name = trackedNpcName != null ? trackedNpcName : "NPC";
+                notifier.notify(String.format("New KPH record at %s: %.1f kills/hr!", name, kph));
+            }
+        }
+    }
+
+    /**
+     * Copies a formatted stats snapshot to the system clipboard.
+     */
+    public void copyStatsToClipboard()
+    {
+        String npc  = trackedNpcName != null ? trackedNpcName : "Unknown";
+        String time = sessionStart != null
+            ? formatDuration(Duration.between(sessionStart, Instant.now()))
+            : "—";
+
+        String text = String.format(
+            "NPC: %s%nKPH: %.1f%nPeak KPH: %.1f%nTotal Kills: %d%nSession: %s",
+            npc, getKillsPerHour(), peakKph, totalKills, time
+        );
+
+        try
+        {
+            Toolkit.getDefaultToolkit().getSystemClipboard()
+                .setContents(new StringSelection(text), null);
+            log.debug("Stats copied to clipboard");
+        }
+        catch (Exception e)
+        {
+            log.warn("Clipboard copy failed", e);
+        }
+    }
+
     // -------------------------------------------------------------------------
-    // Getters (used by overlay and panel)
+    // Calculations
     // -------------------------------------------------------------------------
 
     /**
-     * Calculates kills per hour using a rolling 1-hour window.
+     * Kills per hour over a rolling 1-hour window.
+     * Thread-safe: only reads from ConcurrentLinkedDeque.
      */
     public double getKillsPerHour()
     {
-        if (killTimestamps.isEmpty() || sessionStart == null)
+        Instant first = killTimestamps.peekFirst();
+        if (first == null)
         {
             return 0.0;
         }
 
-        Instant firstKill = killTimestamps.peekFirst();
-        double elapsedSeconds = java.time.Duration.between(firstKill, Instant.now()).getSeconds();
-
-        if (elapsedSeconds < 1)
+        double elapsedMs = Duration.between(first, Instant.now()).toMillis();
+        if (elapsedMs < 1000.0)
         {
             return 0.0;
         }
 
-        return (killTimestamps.size() / elapsedSeconds) * 3600.0;
+        return (killTimestamps.size() / (elapsedMs / 1000.0)) * 3600.0;
     }
-
-    public int getTotalKills()
-    {
-        return totalKills;
-    }
-
-    public String getTrackedNpcName()
-    {
-        return trackedNpcName;
-    }
-
-    public Instant getSessionStart()
-    {
-        return sessionStart;
-    }
-
-    // -------------------------------------------------------------------------
-    // Misc
-    // -------------------------------------------------------------------------
 
     /**
-     * Generates a simple 16x16 "K" icon for the sidebar nav button.
-     * No external image file needed.
+     * Returns a color representing how current KPH compares to the session peak.
+     *   >= 90% of peak  → green
+     *   >= 60% of peak  → yellow
+     *   <  60% of peak  → orange
+     *   no data         → gray
      */
+    public Color getKphColor()
+    {
+        double kph = getKillsPerHour();
+        if (kph <= 0)        return Color.GRAY;
+        if (peakKph <= 0)    return new Color(100, 220, 100);
+        double ratio = kph / peakKph;
+        if (ratio >= 0.9)    return new Color(100, 220, 100);
+        if (ratio >= 0.6)    return new Color(255, 200, 0);
+        return new Color(255, 130, 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // Getters
+    // -------------------------------------------------------------------------
+
+    public int                                  getTotalKills()     { return totalKills; }
+    public String                               getTrackedNpcName() { return trackedNpcName; }
+    public Instant                              getSessionStart()   { return sessionStart; }
+    public double                               getPeakKph()        { return peakKph; }
+    public ConcurrentLinkedDeque<KillLogEntry>  getKillLog()        { return killLog; }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    public static String formatDuration(Duration d)
+    {
+        long h = d.toHours(), m = d.toMinutesPart(), s = d.toSecondsPart();
+        return h > 0
+            ? String.format("%d:%02d:%02d", h, m, s)
+            : String.format("%d:%02d", m, s);
+    }
+
     private BufferedImage buildIcon()
     {
         BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setColor(new Color(255, 200, 0));
-        g.setFont(new Font("SansSerif", Font.BOLD, 13));
-        g.drawString("K", 2, 13);
-        g.dispose();
+        try
+        {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setColor(new Color(255, 200, 0));
+            g.setFont(new Font("SansSerif", Font.BOLD, 13));
+            g.drawString("K", 2, 13);
+        }
+        finally
+        {
+            g.dispose();
+        }
         return img;
     }
 

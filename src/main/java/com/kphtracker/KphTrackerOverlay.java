@@ -1,6 +1,5 @@
 package com.kphtracker;
 
-import net.runelite.api.Client;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.components.LineComponent;
@@ -16,12 +15,15 @@ import java.time.Instant;
 
 public class KphTrackerOverlay extends Overlay
 {
+    private static final Color COLOR_GOLD  = new Color(255, 215, 0);
+    private static final Color COLOR_MUTED = new Color(150, 150, 150);
+
     private final KphTrackerPlugin plugin;
     private final KphTrackerConfig config;
-    private final PanelComponent panelComponent = new PanelComponent();
+    private final PanelComponent   panelComponent = new PanelComponent();
 
     @Inject
-    private KphTrackerOverlay(Client client, KphTrackerPlugin plugin, KphTrackerConfig config)
+    private KphTrackerOverlay(KphTrackerPlugin plugin, KphTrackerConfig config)
     {
         super(plugin);
         setPosition(OverlayPosition.TOP_LEFT);
@@ -34,29 +36,65 @@ public class KphTrackerOverlay extends Overlay
     {
         panelComponent.getChildren().clear();
 
-        // Title bar
+        String npcName  = plugin.getTrackedNpcName();
+        double kph      = plugin.getKillsPerHour();
+        Color  kphColor = plugin.getKphColor();
+
+        if (config.compactOverlay())
+        {
+            renderCompact(npcName, kph, kphColor);
+        }
+        else
+        {
+            renderFull(npcName, kph, kphColor);
+        }
+
+        panelComponent.setPreferredSize(new Dimension(config.compactOverlay() ? 140 : 170, 0));
+        return panelComponent.render(graphics);
+    }
+
+    private void renderCompact(String npcName, double kph, Color kphColor)
+    {
+        String label = (npcName != null ? npcName : "-")
+            + "  |  "
+            + (kph > 0 ? String.format("%.1f", kph) : "-")
+            + " kph";
+
+        panelComponent.getChildren().add(TitleComponent.builder()
+            .text(label)
+            .color(kph > 0 ? kphColor : COLOR_MUTED)
+            .build());
+    }
+
+    private void renderFull(String npcName, double kph, Color kphColor)
+    {
         panelComponent.getChildren().add(TitleComponent.builder()
             .text("KPH Tracker")
             .color(Color.YELLOW)
             .build());
 
-        // NPC being tracked
-        String npcName = plugin.getTrackedNpcName();
         panelComponent.getChildren().add(LineComponent.builder()
             .left("NPC")
-            .right(npcName != null ? npcName : "—")
-            .rightColor(npcName != null ? Color.WHITE : Color.GRAY)
+            .right(npcName != null ? npcName : "-")
+            .rightColor(npcName != null ? Color.WHITE : COLOR_MUTED)
             .build());
 
-        // Kills per hour
-        double kph = plugin.getKillsPerHour();
         panelComponent.getChildren().add(LineComponent.builder()
             .left("KPH")
-            .right(kph > 0 ? String.format("%.1f", kph) : "—")
-            .rightColor(kph > 0 ? Color.GREEN : Color.GRAY)
+            .right(kph > 0 ? String.format("%.1f", kph) : "-")
+            .rightColor(kph > 0 ? kphColor : COLOR_MUTED)
             .build());
 
-        // Total kills this session
+        if (config.showPeakOnOverlay())
+        {
+            double peak = plugin.getPeakKph();
+            panelComponent.getChildren().add(LineComponent.builder()
+                .left("Peak")
+                .right(peak > 0 ? String.format("%.1f", peak) : "-")
+                .rightColor(COLOR_GOLD)
+                .build());
+        }
+
         if (config.showTotalKills())
         {
             panelComponent.getChildren().add(LineComponent.builder()
@@ -65,37 +103,13 @@ public class KphTrackerOverlay extends Overlay
                 .build());
         }
 
-        // Session elapsed time
         if (config.showSessionTime() && plugin.getSessionStart() != null)
         {
             Duration elapsed = Duration.between(plugin.getSessionStart(), Instant.now());
-            String timeStr = formatDuration(elapsed);
             panelComponent.getChildren().add(LineComponent.builder()
                 .left("Time")
-                .right(timeStr)
+                .right(KphTrackerPlugin.formatDuration(elapsed))
                 .build());
-        }
-
-        panelComponent.setPreferredSize(new Dimension(160, 0));
-        return panelComponent.render(graphics);
-    }
-
-    /**
-     * Formats a Duration as h:mm:ss or m:ss depending on length.
-     */
-    private String formatDuration(Duration d)
-    {
-        long hours = d.toHours();
-        long minutes = d.toMinutesPart();
-        long seconds = d.toSecondsPart();
-
-        if (hours > 0)
-        {
-            return String.format("%d:%02d:%02d", hours, minutes, seconds);
-        }
-        else
-        {
-            return String.format("%d:%02d", minutes, seconds);
         }
     }
 }
